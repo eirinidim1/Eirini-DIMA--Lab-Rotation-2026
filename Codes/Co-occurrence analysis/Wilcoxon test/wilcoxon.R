@@ -362,36 +362,187 @@ p_TF_pair_timepoint <- ggplot(
 
 print(p_TF_pair_timepoint)
 
-# =============================================
-# Simple Table with expression pattern for report
-# =============================================
+# ==========================================================
+# TOP 10 SIGNIFICANT 
+# Load TF_pair_final_significant_summary_table
+# ==========================================================
 
-Table_top10_TF_pairs_simple <- top_candidate_hits %>%
+tf_pair_results <- read.csv(
+  file.choose(),
+  stringsAsFactors = FALSE
+)
+
+View(tf_pair_results)
+
+
+# ==========================================================
+# Define statistically significant comparisons
+# ==========================================================
+
+tf_pair_results_interpreted <- tf_pair_results %>%
+  rowwise() %>%
+  mutate(
+    
+    significant_comparison = paste(
+      na.omit(
+        c(
+          case_when(
+            p_adj_Both_vs_TF1 < 0.05 &
+              mean_Both_TFs > mean_TF1_only ~
+              "Both_TFs > TF1_only",
+            
+            p_adj_Both_vs_TF1 < 0.05 &
+              mean_Both_TFs < mean_TF1_only ~
+              "Both_TFs < TF1_only",
+            
+            TRUE ~ NA_character_
+          ),
+          
+          case_when(
+            p_adj_Both_vs_TF2 < 0.05 &
+              mean_Both_TFs > mean_TF2_only ~
+              "Both_TFs > TF2_only",
+            
+            p_adj_Both_vs_TF2 < 0.05 &
+              mean_Both_TFs < mean_TF2_only ~
+              "Both_TFs < TF2_only",
+            
+            TRUE ~ NA_character_
+          ),
+          
+          case_when(
+            p_adj_TF1_vs_TF2 < 0.05 &
+              mean_TF1_only > mean_TF2_only ~
+              "TF1_only > TF2_only",
+            
+            p_adj_TF1_vs_TF2 < 0.05 &
+              mean_TF1_only < mean_TF2_only ~
+              "TF1_only < TF2_only",
+            
+            TRUE ~ NA_character_
+          )
+        )
+      ),
+      collapse = "; "
+    ),
+    
+    n_significant_comparisons = sum(
+      c(
+        p_adj_Both_vs_TF1,
+        p_adj_Both_vs_TF2,
+        p_adj_TF1_vs_TF2
+      ) < 0.05,
+      na.rm = TRUE
+    ),
+    
+    minimum_significant_adjusted_p = min(
+      c(
+        ifelse(
+          p_adj_Both_vs_TF1 < 0.05,
+          p_adj_Both_vs_TF1,
+          NA_real_
+        ),
+        
+        ifelse(
+          p_adj_Both_vs_TF2 < 0.05,
+          p_adj_Both_vs_TF2,
+          NA_real_
+        ),
+        
+        ifelse(
+          p_adj_TF1_vs_TF2 < 0.05,
+          p_adj_TF1_vs_TF2,
+          NA_real_
+        )
+      ),
+      na.rm = TRUE
+    )
+  ) %>%
+  ungroup()
+
+
+# ==========================================================
+# Select top 10 significant cases
+# ==========================================================
+
+Table_9_top10_corrected <- tf_pair_results_interpreted %>%
+  arrange(minimum_significant_adjusted_p) %>%
   slice_head(n = 10) %>%
   mutate(
-    min_adjusted_p = signif(min_adjusted_p, 3),
-    expression_pattern = case_when(
-      mean_Both_TFs < mean_TF1_only & mean_Both_TFs > mean_TF2_only ~
-        "Both_TFs intermediate",
-      mean_Both_TFs < mean_TF1_only ~
-        "Both_TFs lower than TF1_only",
-      mean_Both_TFs > mean_TF2_only ~
-        "Both_TFs higher than TF2_only",
-      TRUE ~ "Distinct expression pattern"
+    minimum_significant_adjusted_p = signif(
+      minimum_significant_adjusted_p,
+      3
     )
   ) %>%
   select(
     TF1,
     TF2,
     timepoint,
-    expression_pattern,
-    min_adjusted_p
+    significant_comparison,
+    n_significant_comparisons,
+    minimum_significant_adjusted_p
   )
 
-View(Table_top10_TF_pairs_simple)
+View(Table_9_top10_corrected)
 
 write.csv(
-  Table_top10_TF_pairs_simple,
-  "~/Desktop/top10_TF_pairs_simpl.csv",
+  Table_9_top10_corrected,
+  "~/Desktop/Table_9_top10_TF_pairs_corrected.csv",
+  row.names = FALSE
+)
+
+
+# ==========================================================
+# Expression pattern summary by timepoint
+# ==========================================================
+
+pattern_summary_by_timepoint <- tf_pair_results_interpreted %>%
+  mutate(
+    expression_pattern = case_when(
+      
+      mean_Both_TFs < mean_TF1_only &
+        mean_Both_TFs < mean_TF2_only ~
+        "Both_TFs lowest",
+      
+      mean_Both_TFs > mean_TF1_only &
+        mean_Both_TFs > mean_TF2_only ~
+        "Both_TFs highest",
+      
+      mean_Both_TFs > pmin(
+        mean_TF1_only,
+        mean_TF2_only
+      ) &
+        mean_Both_TFs < pmax(
+          mean_TF1_only,
+          mean_TF2_only
+        ) ~
+        "Both_TFs intermediate",
+      
+      TRUE ~ "Equal or other"
+    )
+  ) %>%
+  count(
+    timepoint,
+    expression_pattern,
+    name = "n_cases"
+  ) %>%
+  group_by(timepoint) %>%
+  mutate(
+    percentage = round(
+      100 * n_cases / sum(n_cases),
+      1
+    )
+  ) %>%
+  ungroup() %>%
+  arrange(
+    timepoint,
+    desc(n_cases)
+  )
+
+View(pattern_summary_by_timepoint)
+
+write.csv(
+  pattern_summary_by_timepoint,
+  "~/Desktop/TF_pair_expression_pattern_summary_by_timepoint.csv",
   row.names = FALSE
 )
